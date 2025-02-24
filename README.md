@@ -6,23 +6,23 @@ This project provides Docker images to periodically back up a PostgreSQL databas
 ```yaml
 services:
   postgres:
-    image: postgres:16
+    image: postgres:15
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
 
   backup:
-    image: eeshugerman/postgres-backup-s3:16
+    image: ghcr.io/alcelafranque/alcelafranque/postgres-backup-s3:15
     environment:
       SCHEDULE: '@weekly'     # optional
       BACKUP_KEEP_DAYS: 7     # optional
       PASSPHRASE: passphrase  # optional
       S3_ENDPOINT: https://my-endpoint # optional, for non-AWS S3-compatible storage provider
-      S3_REGION: region
-      S3_ACCESS_KEY_ID: key
-      S3_SECRET_ACCESS_KEY: secret
-      S3_BUCKET: my-bucket
+      AWS_ACCESS_KEY_ID: key
+      AWS_SECRET_ACCESS_KEY: secret
+      S3_BUCKET: bucket
       S3_PREFIX: backup
+      S3_REGION: region
       POSTGRES_HOST: postgres
       POSTGRES_DATABASE: dbname
       POSTGRES_USER: user
