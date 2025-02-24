@@ -13,11 +13,14 @@ services:
 
   backup:
     image: ghcr.io/alcelafranque/alcelafranque/postgres-backup-s3:15
+    volumes: # optional
+      - /usr/local/share/ca-certificates/cloud-init-ca-cert-1.crt:/ca.crt:ro
     environment:
-      SCHEDULE: '@weekly'     # optional
-      BACKUP_KEEP_DAYS: 7     # optional
-      PASSPHRASE: passphrase  # optional
+      SCHEDULE: '@weekly'              # optional
+      BACKUP_KEEP_DAYS: 7              # optional
+      PASSPHRASE: passphrase           # optional
       S3_ENDPOINT: https://my-endpoint # optional, for non-AWS S3-compatible storage provider
+      AWS_CA_BUNDLE: /ca.crt           # optional
       AWS_ACCESS_KEY_ID: key
       AWS_SECRET_ACCESS_KEY: secret
       S3_BUCKET: bucket
