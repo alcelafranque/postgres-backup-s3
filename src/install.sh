@@ -1,12 +1,14 @@
-#! /bin/sh
+#!/bin/sh
 
 set -eux
-set -o pipefail
 
 apk update
 
 # install pg_dump
 apk add postgresql-client
+
+# install bash
+apk add bash
 
 # install gpg
 apk add gnupg

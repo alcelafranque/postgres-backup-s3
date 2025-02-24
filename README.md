@@ -32,7 +32,7 @@ services:
 - Images are tagged by the major PostgreSQL version supported: `12`, `13`, `14`, `15` or `16`.
 - The `SCHEDULE` variable determines backup frequency. See go-cron schedules documentation [here](http://godoc.org/github.com/robfig/cron#hdr-Predefined_schedules). Omit to run the backup immediately and then exit.
 - If `PASSPHRASE` is provided, the backup will be encrypted using GPG.
-- Run `docker exec <container name> sh backup.sh` to trigger a backup ad-hoc.
+- Run `docker exec <container name> bash backup.sh` to trigger a backup ad-hoc.
 - If `BACKUP_KEEP_DAYS` is set, backups older than this many days will be deleted from S3.
 
 ## Restore
@@ -40,26 +40,26 @@ services:
 > DATA LOSS! All database objects will be dropped and re-created.
 
 ### ... from latest backup
-```sh
-docker exec <container name> sh restore.sh
+```bash
+docker exec <container name> bash restore.sh
 ```
 
 > [!NOTE]
 > If your bucket has more than a 1000 files, the latest may not be restored -- only one S3 `ls` command is used
 
 ### ... from specific backup
-```sh
-docker exec <container name> sh restore.sh <timestamp>
+```bash
+docker exec <container name> bash restore.sh <timestamp>
 ```
 
 # Development
 ## Build the image locally
 `ALPINE_VERSION` determines Postgres version compatibility. See [`build-and-push-images.yml`](.github/workflows/build-and-push-images.yml) for the latest mapping.
-```sh
+```bash
 DOCKER_BUILDKIT=1 docker build --build-arg ALPINE_VERSION=3.14 .
 ```
 ## Run a simple test environment with Docker Compose
-```sh
+```bash
 cp template.env .env
 # fill out your secrets/params in .env
 docker compose up -d

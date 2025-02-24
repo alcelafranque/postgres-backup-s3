@@ -1,4 +1,4 @@
-#! /bin/sh
+#!/usr/bin/env bash
 
 set -eu
 
@@ -7,7 +7,7 @@ if [ "$S3_S3V4" = "yes" ]; then
 fi
 
 if [ -z "$SCHEDULE" ]; then
-  sh backup.sh
+  bash backup.sh
 else
   exec go-cron "$SCHEDULE" /bin/sh backup.sh
 fi
