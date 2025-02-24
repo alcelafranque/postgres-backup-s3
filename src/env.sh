@@ -32,11 +32,10 @@ if [ -z "$POSTGRES_PASSWORD" ]; then
 fi
 
 if [ -z "$S3_ENDPOINT" ]; then
-  aws_args=""
+  aws_args=()
 else
-  aws_args="--endpoint-url $S3_ENDPOINT"
+  aws_args=(--endpoint-url "$S3_ENDPOINT")
 fi
-
 
 if [ -n "$S3_ACCESS_KEY_ID" ]; then
   export AWS_ACCESS_KEY_ID=$S3_ACCESS_KEY_ID
