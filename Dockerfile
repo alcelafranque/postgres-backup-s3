@@ -1,9 +1,10 @@
 ARG ALPINE_VERSION
 FROM alpine:${ALPINE_VERSION}
 ARG TARGETARCH
+ARG POSTGRESQL_PACKAGE
 
 ADD src/install.sh install.sh
-RUN sh install.sh && rm install.sh
+RUN sh install.sh ${POSTGRESQL_PACKAGE} && rm install.sh
 
 ENV POSTGRES_DATABASE ''
 ENV POSTGRES_HOST ''

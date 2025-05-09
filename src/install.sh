@@ -5,7 +5,7 @@ set -eux
 apk update
 
 # install pg_dump
-apk add postgresql-client
+apk add ${POSTGRESQL_PACKAGE}
 
 # install bash
 apk add bash
