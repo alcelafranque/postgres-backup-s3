@@ -11,11 +11,11 @@ jobs:
     strategy:
       matrix:
         include:
-          - { postgres: 12, alpine: '3.12' }
-          - { postgres: 13, alpine: '3.14' }
-          - { postgres: 14, alpine: '3.16' }
-          - { postgres: 15, alpine: '3.17' }
-          - { postgres: 16, alpine: '3.19' }
+          - { postgres: 12, alpine: '3.12', psql-package: 'postgresql-client' }
+          - { postgres: 13, alpine: '3.19', psql-package: 'postgresql13-client' }
+          - { postgres: 14, alpine: '3.19', psql-package: 'postgresql14-client' }
+          - { postgres: 15, alpine: '3.19', psql-package: 'postgresql15-client' }
+          - { postgres: 16, alpine: '3.19', psql-package: 'postgresql16-client' }
 
     steps:
       - uses: actions/checkout@v4
@@ -35,6 +35,7 @@ jobs:
           tags: ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:${{ matrix.postgres }}
           build-args: |
             ALPINE_VERSION=${{ matrix.alpine }}
+            POSTGRESQL_PACKAGE=${{ matrix.psql-package }}
           platforms: |
             linux/amd64
             linux/arm64
