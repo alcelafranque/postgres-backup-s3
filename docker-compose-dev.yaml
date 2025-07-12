@@ -1,0 +1,29 @@
+# this file is here to facilitate development/testing
+# $ docker compose up -d --build --force-recreate
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+
+  backup:
+    build:
+      context: .
+      args:
+        ALPINE_VERSION: '3.17'
+    environment:
+      SCHEDULE: '@weekly'                      # optional
+      BACKUP_KEEP_DAYS: 7                      # optional
+      PASSPHRASE: passphrase                   # optional
+      S3_ENDPOINT: https://s3-endpoint.example # optional
+      S3_REGION:
+      AWS_ACCESS_KEY_ID:
+      AWS_SECRET_ACCESS_KEY:
+      S3_BUCKET:
+      S3_PREFIX:
+      POSTGRES_HOST: postgres
+      POSTGRES_DATABASE: postgres
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password

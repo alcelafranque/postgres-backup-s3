@@ -1,29 +1,20 @@
-# this file is here to facilitate development/testing
-# $ docker compose up -d --build --force-recreate
-
 services:
-  postgres:
-    image: postgres:15
-    environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
-
   backup:
-    build:
-      context: .
-      args:
-        ALPINE_VERSION: '3.17'
+    image: ghcr.io/alcelafranque/alcelafranque/postgres-backup-s3:16
+    volumes:
+      - /usr/local/share/ca-certificates/cloud-init-ca-cert-1.crt:/ca.crt:ro
     environment:
-      SCHEDULE: '@weekly'                      # optional
-      BACKUP_KEEP_DAYS: 7                      # optional
-      PASSPHRASE: passphrase                   # optional
-      S3_ENDPOINT: https://s3-endpoint.example # optional
-      S3_REGION:
-      AWS_ACCESS_KEY_ID:
-      AWS_SECRET_ACCESS_KEY:
-      S3_BUCKET:
-      S3_PREFIX:
-      POSTGRES_HOST: postgres
-      POSTGRES_DATABASE: postgres
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
+      SCHEDULE: '@midnight'
+      BACKUP_KEEP_DAYS: 30
+      PASSPHRASE: passphrase
+      S3_ENDPOINT: https://s3.random-s3-provider.com
+      AWS_ACCESS_KEY_ID: acces-key
+      AWS_SECRET_ACCESS_KEY: secret-key
+      S3_BUCKET: bucket
+      S3_PREFIX: db1-fra-par1
+      S3_REGION: paris
+      POSTGRES_HOST: psql-ro.svc.cluster.local
+      POSTGRES_DATABASE: database
+      POSTGRES_USER: dumper-01
+      POSTGRES_PASSWORD: mypassword
+      AWS_CA_BUNDLE: ca.crt
