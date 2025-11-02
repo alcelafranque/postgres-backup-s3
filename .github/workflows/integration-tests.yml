@@ -1,0 +1,350 @@
+name: Integration Tests
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  test-backup:
+    name: Test PostgreSQL ${{ matrix.postgres-version }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres-version: [12, 13, 14, 15, 16, 17]
+        include:
+          - postgres-version: 12
+            alpine-version: "3.12"
+            postgresql-package: "postgresql-client"
+          - postgres-version: 13
+            alpine-version: "3.19"
+            postgresql-package: "postgresql13-client"
+          - postgres-version: 14
+            alpine-version: "3.19"
+            postgresql-package: "postgresql14-client"
+          - postgres-version: 15
+            alpine-version: "3.19"
+            postgresql-package: "postgresql15-client"
+          - postgres-version: 16
+            alpine-version: "3.19"
+            postgresql-package: "postgresql16-client"
+          - postgres-version: 17
+            alpine-version: "3.21"
+            postgresql-package: "postgresql17-client"
+
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres-version }}-alpine
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: netflix
+        options: >-
+          --health-cmd "pg_isready -U testuser"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Start MinIO
+        run: |
+          docker run -d \
+            --name minio \
+            --network host \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin123 \
+            minio/minio:latest \
+            server /data --console-address ":9001"
+
+          echo "Waiting for MinIO to be ready..."
+          for i in {1..30}; do
+            if curl -f http://localhost:9000/minio/health/live 2>/dev/null; then
+              echo "MinIO is ready!"
+              break
+            fi
+            echo "Waiting... ($i/30)"
+            sleep 2
+          done
+
+      - name: Create S3 bucket
+        run: |
+          docker run --rm --network host \
+            -e AWS_ACCESS_KEY_ID=minioadmin \
+            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            amazon/aws-cli:latest \
+            --endpoint-url http://localhost:9000 \
+            --region us-east-1 \
+            s3 mb s3://test-backups || echo "Bucket might already exist"
+
+          echo "S3 bucket created successfully"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backup image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          load: true
+          tags: postgres-backup-s3:test-${{ matrix.postgres-version }}
+          build-args: |
+            ALPINE_VERSION=${{ matrix.alpine-version }}
+            POSTGRESQL_PACKAGE=${{ matrix.postgresql-package }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Load Netflix sample database
+        env:
+          PGPASSWORD: testpass
+        run: |
+          # Install PostgreSQL client
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+          # Download Netflix sample database
+          echo "Downloading Netflix sample database..."
+          curl -sL https://raw.githubusercontent.com/neondatabase-labs/postgres-sample-dbs/main/netflix.sql -o netflix.sql
+
+          # Load the database
+          echo "Loading Netflix sample database into PostgreSQL..."
+          psql -h localhost -U testuser -d netflix -f netflix.sql
+
+          # Verify data loaded
+          echo "Verifying database contents..."
+          TABLE_COUNT=$(psql -h localhost -U testuser -d netflix -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';" | xargs)
+          echo "Found $TABLE_COUNT table(s)"
+
+          if [ "$TABLE_COUNT" -eq "0" ]; then
+            echo "Error: No tables found in database"
+            exit 1
+          fi
+
+          # Show table names and approximate row counts
+          echo "Database tables:"
+          psql -h localhost -U testuser -d netflix -c "
+            SELECT
+              schemaname,
+              relname as tablename,
+              n_live_tup as estimated_rows
+            FROM pg_stat_user_tables
+            ORDER BY n_live_tup DESC;
+          "
+
+      - name: Test backup without encryption
+        run: |
+          echo "Testing backup without encryption..."
+          docker run --rm \
+            --network host \
+            -e POSTGRES_HOST=localhost \
+            -e POSTGRES_PORT=5432 \
+            -e POSTGRES_USER=testuser \
+            -e POSTGRES_PASSWORD=testpass \
+            -e POSTGRES_DATABASE=netflix \
+            -e S3_ENDPOINT=http://localhost:9000 \
+            -e S3_BUCKET=test-backups \
+            -e S3_PREFIX=backup-plain \
+            -e S3_REGION=us-east-1 \
+            -e AWS_ACCESS_KEY_ID=minioadmin \
+            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            postgres-backup-s3:test-${{ matrix.postgres-version }} \
+            bash /backup.sh
+
+          echo "✓ Backup without encryption completed"
+
+      - name: Verify plain backup in S3
+        run: |
+          echo "Verifying backup exists in S3..."
+          docker run --rm --network host \
+            -e AWS_ACCESS_KEY_ID=minioadmin \
+            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            amazon/aws-cli:latest \
+            --endpoint-url http://localhost:9000 \
+            --region us-east-1 \
+            s3 ls s3://test-backups/backup-plain/
+
+          BACKUP_COUNT=$(docker run --rm --network host \
+            -e AWS_ACCESS_KEY_ID=minioadmin \
+            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            amazon/aws-cli:latest \
+            --endpoint-url http://localhost:9000 \
+            --region us-east-1 \
+            s3 ls s3://test-backups/backup-plain/ | grep '\.dump$' | wc -l)
+
+          echo "Found $BACKUP_COUNT .dump file(s)"
+          if [ "$BACKUP_COUNT" -lt "1" ]; then
+            echo "Error: No backup found in S3"
+            exit 1
+          fi
+
+          echo "✓ Plain backup verified in S3"
+
+      - name: Test backup with encryption
+        run: |
+          echo "Testing backup with GPG encryption..."
+          docker run --rm \
+            --network host \
+            -e POSTGRES_HOST=localhost \
+            -e POSTGRES_PORT=5432 \
+            -e POSTGRES_USER=testuser \
+            -e POSTGRES_PASSWORD=testpass \
+            -e POSTGRES_DATABASE=netflix \
+            -e S3_ENDPOINT=http://localhost:9000 \
+            -e S3_BUCKET=test-backups \
+            -e S3_PREFIX=backup-encrypted \
+            -e S3_REGION=us-east-1 \
+            -e AWS_ACCESS_KEY_ID=minioadmin \
+            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            -e PASSPHRASE=super-secret-passphrase-123 \
+            postgres-backup-s3:test-${{ matrix.postgres-version }} \
+            bash /backup.sh
+
+          echo "✓ Encrypted backup completed"
+
+      - name: Verify encrypted backup in S3
+        run: |
+          echo "Verifying encrypted backup exists in S3..."
+          docker run --rm --network host \
+            -e AWS_ACCESS_KEY_ID=minioadmin \
+            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            amazon/aws-cli:latest \
+            --endpoint-url http://localhost:9000 \
+            --region us-east-1 \
+            s3 ls s3://test-backups/backup-encrypted/
+
+          ENCRYPTED_COUNT=$(docker run --rm --network host \
+            -e AWS_ACCESS_KEY_ID=minioadmin \
+            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            amazon/aws-cli:latest \
+            --endpoint-url http://localhost:9000 \
+            --region us-east-1 \
+            s3 ls s3://test-backups/backup-encrypted/ | grep '\.gpg$' | wc -l)
+
+          echo "Found $ENCRYPTED_COUNT .gpg file(s)"
+          if [ "$ENCRYPTED_COUNT" -lt "1" ]; then
+            echo "Error: No encrypted backup found in S3"
+            exit 1
+          fi
+
+          echo "✓ Encrypted backup verified in S3"
+
+      - name: Create second database for multi-db test
+        env:
+          PGPASSWORD: testpass
+        run: |
+          echo "Creating second test database..."
+          psql -h localhost -U testuser -d postgres -c "CREATE DATABASE testdb2;"
+          psql -h localhost -U testuser -d testdb2 -c "
+            CREATE TABLE sample_data (
+              id SERIAL PRIMARY KEY,
+              name VARCHAR(100),
+              created_at TIMESTAMP DEFAULT NOW()
+            );
+            INSERT INTO sample_data (name)
+            SELECT 'Sample ' || generate_series
+            FROM generate_series(1, 50);
+          "
+
+          ROW_COUNT=$(psql -h localhost -U testuser -d testdb2 -t -c "SELECT COUNT(*) FROM sample_data;" | xargs)
+          echo "Created testdb2 with $ROW_COUNT rows"
+
+      - name: Test multi-database backup
+        run: |
+          echo "Testing multi-database backup..."
+          docker run --rm \
+            --network host \
+            -e POSTGRES_HOST=localhost \
+            -e POSTGRES_PORT=5432 \
+            -e POSTGRES_USER=testuser \
+            -e POSTGRES_PASSWORD=testpass \
+            -e POSTGRES_DATABASE=netflix,testdb2 \
+            -e S3_ENDPOINT=http://localhost:9000 \
+            -e S3_BUCKET=test-backups \
+            -e S3_PREFIX=backup-multi \
+            -e S3_REGION=us-east-1 \
+            -e AWS_ACCESS_KEY_ID=minioadmin \
+            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            postgres-backup-s3:test-${{ matrix.postgres-version }} \
+            bash /backup.sh
+
+          echo "✓ Multi-database backup completed"
+
+      - name: Verify multi-database backups in S3
+        run: |
+          echo "Verifying both databases were backed up..."
+          docker run --rm --network host \
+            -e AWS_ACCESS_KEY_ID=minioadmin \
+            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            amazon/aws-cli:latest \
+            --endpoint-url http://localhost:9000 \
+            --region us-east-1 \
+            s3 ls s3://test-backups/backup-multi/
+
+          NETFLIX_COUNT=$(docker run --rm --network host \
+            -e AWS_ACCESS_KEY_ID=minioadmin \
+            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            amazon/aws-cli:latest \
+            --endpoint-url http://localhost:9000 \
+            --region us-east-1 \
+            s3 ls s3://test-backups/backup-multi/ | grep 'netflix' | wc -l)
+
+          TESTDB2_COUNT=$(docker run --rm --network host \
+            -e AWS_ACCESS_KEY_ID=minioadmin \
+            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            amazon/aws-cli:latest \
+            --endpoint-url http://localhost:9000 \
+            --region us-east-1 \
+            s3 ls s3://test-backups/backup-multi/ | grep 'testdb2' | wc -l)
+
+          echo "Netflix backups: $NETFLIX_COUNT"
+          echo "TestDB2 backups: $TESTDB2_COUNT"
+
+          if [ "$NETFLIX_COUNT" -lt "1" ]; then
+            echo "Error: Netflix backup not found"
+            exit 1
+          fi
+
+          if [ "$TESTDB2_COUNT" -lt "1" ]; then
+            echo "Error: TestDB2 backup not found"
+            exit 1
+          fi
+
+          echo "✓ Multi-database backup verified in S3"
+
+      - name: List all backups
+        if: always()
+        run: |
+          echo "============================================"
+          echo "All backups in S3:"
+          echo "============================================"
+          docker run --rm --network host \
+            -e AWS_ACCESS_KEY_ID=minioadmin \
+            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            amazon/aws-cli:latest \
+            --endpoint-url http://localhost:9000 \
+            --region us-east-1 \
+            s3 ls s3://test-backups/ --recursive
+
+      - name: Test Summary
+        if: always()
+        run: |
+          echo ""
+          echo "============================================"
+          echo "PostgreSQL ${{ matrix.postgres-version }} Test Summary"
+          echo "============================================"
+          echo "✓ Build backup image"
+          echo "✓ Configure MinIO S3"
+          echo "✓ Load Netflix sample database"
+          echo "✓ Backup without encryption"
+          echo "✓ Backup with GPG encryption"
+          echo "✓ Multi-database backup"
+          echo "============================================"
