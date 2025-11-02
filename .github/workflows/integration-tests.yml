@@ -25,16 +25,16 @@ jobs:
             alpine-version: "3.19"
             postgresql-package: "postgresql13-client"
           - postgres-version: 14
-            alpine-version: "3.19"
+            alpine-version: "3.20"
             postgresql-package: "postgresql14-client"
           - postgres-version: 15
-            alpine-version: "3.19"
+            alpine-version: "3.22"
             postgresql-package: "postgresql15-client"
           - postgres-version: 16
-            alpine-version: "3.19"
+            alpine-version: "3.22"
             postgresql-package: "postgresql16-client"
           - postgres-version: 17
-            alpine-version: "3.21"
+            alpine-version: "3.22"
             postgresql-package: "postgresql17-client"
 
     services:
