@@ -19,7 +19,7 @@ jobs:
           - { postgres: 17, alpine: '3.22', psql-package: 'postgresql17-client' }
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - uses: docker/setup-qemu-action@v3
