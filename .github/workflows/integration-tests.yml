@@ -188,6 +188,50 @@ jobs:
 
           echo "✓ Plain backup verified in S3"
 
+      - name: Test restore from plain backup
+        env:
+          PGPASSWORD: testpass
+        run: |
+          echo "Selecting largest table in netflix..."
+          TABLE=$(psql -h localhost -U testuser -d netflix -t -A -c \
+            "SELECT relname FROM pg_stat_user_tables ORDER BY n_live_tup DESC LIMIT 1;")
+          echo "Target table: $TABLE"
+
+          ORIG=$(psql -h localhost -U testuser -d netflix -t -A -c \
+            "SELECT count(*) FROM \"$TABLE\";")
+          echo "Original row count: $ORIG"
+
+          echo "Truncating $TABLE to simulate data loss..."
+          psql -h localhost -U testuser -d netflix -c "TRUNCATE TABLE \"$TABLE\" CASCADE;"
+
+          echo "Restoring from plain backup..."
+          docker run --rm \
+            --network host \
+            -e POSTGRES_HOST=localhost \
+            -e POSTGRES_PORT=5432 \
+            -e POSTGRES_USER=testuser \
+            -e POSTGRES_PASSWORD=testpass \
+            -e POSTGRES_DATABASE=netflix \
+            -e S3_ENDPOINT=http://localhost:9000 \
+            -e S3_BUCKET=test-backups \
+            -e S3_PREFIX=backup-plain \
+            -e S3_REGION=us-east-1 \
+            -e AWS_ACCESS_KEY_ID=minioadmin \
+            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            postgres-backup-s3:test-${{ matrix.postgres-version }} \
+            bash /restore.sh
+
+          RESTORED=$(psql -h localhost -U testuser -d netflix -t -A -c \
+            "SELECT count(*) FROM \"$TABLE\";")
+          echo "Row count after restore: $RESTORED (expected $ORIG)"
+
+          if [ "$RESTORED" != "$ORIG" ]; then
+            echo "Error: restore mismatch (expected $ORIG, got $RESTORED)"
+            exit 1
+          fi
+
+          echo "✓ Plain restore verified ($RESTORED rows)"
+
       - name: Test backup with encryption
         run: |
           echo "Testing backup with GPG encryption..."
@@ -236,6 +280,51 @@ jobs:
           fi
 
           echo "✓ Encrypted backup verified in S3"
+
+      - name: Test restore from encrypted backup
+        env:
+          PGPASSWORD: testpass
+        run: |
+          echo "Selecting largest table in netflix..."
+          TABLE=$(psql -h localhost -U testuser -d netflix -t -A -c \
+            "SELECT relname FROM pg_stat_user_tables ORDER BY n_live_tup DESC LIMIT 1;")
+          echo "Target table: $TABLE"
+
+          ORIG=$(psql -h localhost -U testuser -d netflix -t -A -c \
+            "SELECT count(*) FROM \"$TABLE\";")
+          echo "Original row count: $ORIG"
+
+          echo "Truncating $TABLE to simulate data loss..."
+          psql -h localhost -U testuser -d netflix -c "TRUNCATE TABLE \"$TABLE\" CASCADE;"
+
+          echo "Restoring from encrypted backup..."
+          docker run --rm \
+            --network host \
+            -e POSTGRES_HOST=localhost \
+            -e POSTGRES_PORT=5432 \
+            -e POSTGRES_USER=testuser \
+            -e POSTGRES_PASSWORD=testpass \
+            -e POSTGRES_DATABASE=netflix \
+            -e S3_ENDPOINT=http://localhost:9000 \
+            -e S3_BUCKET=test-backups \
+            -e S3_PREFIX=backup-encrypted \
+            -e S3_REGION=us-east-1 \
+            -e AWS_ACCESS_KEY_ID=minioadmin \
+            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            -e PASSPHRASE=super-secret-passphrase-123 \
+            postgres-backup-s3:test-${{ matrix.postgres-version }} \
+            bash /restore.sh
+
+          RESTORED=$(psql -h localhost -U testuser -d netflix -t -A -c \
+            "SELECT count(*) FROM \"$TABLE\";")
+          echo "Row count after restore: $RESTORED (expected $ORIG)"
+
+          if [ "$RESTORED" != "$ORIG" ]; then
+            echo "Error: restore mismatch (expected $ORIG, got $RESTORED)"
+            exit 1
+          fi
+
+          echo "✓ Encrypted restore verified ($RESTORED rows)"
 
       - name: Create second database for multi-db test
         env:
@@ -320,6 +409,45 @@ jobs:
 
           echo "✓ Multi-database backup verified in S3"
 
+      - name: Test restore from multi-database backup
+        env:
+          PGPASSWORD: testpass
+        run: |
+          ORIG=$(psql -h localhost -U testuser -d testdb2 -t -A -c \
+            "SELECT count(*) FROM sample_data;")
+          echo "Original testdb2.sample_data row count: $ORIG"
+
+          echo "Truncating sample_data to simulate data loss..."
+          psql -h localhost -U testuser -d testdb2 -c "TRUNCATE TABLE sample_data CASCADE;"
+
+          echo "Restoring testdb2 from multi-database backup..."
+          docker run --rm \
+            --network host \
+            -e POSTGRES_HOST=localhost \
+            -e POSTGRES_PORT=5432 \
+            -e POSTGRES_USER=testuser \
+            -e POSTGRES_PASSWORD=testpass \
+            -e POSTGRES_DATABASE=testdb2 \
+            -e S3_ENDPOINT=http://localhost:9000 \
+            -e S3_BUCKET=test-backups \
+            -e S3_PREFIX=backup-multi \
+            -e S3_REGION=us-east-1 \
+            -e AWS_ACCESS_KEY_ID=minioadmin \
+            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            postgres-backup-s3:test-${{ matrix.postgres-version }} \
+            bash /restore.sh
+
+          RESTORED=$(psql -h localhost -U testuser -d testdb2 -t -A -c \
+            "SELECT count(*) FROM sample_data;")
+          echo "Row count after restore: $RESTORED (expected $ORIG)"
+
+          if [ "$RESTORED" != "$ORIG" ]; then
+            echo "Error: restore mismatch (expected $ORIG, got $RESTORED)"
+            exit 1
+          fi
+
+          echo "✓ Multi-database restore verified ($RESTORED rows)"
+
       - name: List all backups
         if: always()
         run: |
@@ -347,4 +475,7 @@ jobs:
           echo "✓ Backup without encryption"
           echo "✓ Backup with GPG encryption"
           echo "✓ Multi-database backup"
+          echo "✓ Restore from plain backup"
+          echo "✓ Restore from encrypted backup"
+          echo "✓ Restore from multi-database backup"
           echo "============================================"

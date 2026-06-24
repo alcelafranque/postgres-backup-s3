@@ -1,6 +1,6 @@
 services:
   backup:
-    image: ghcr.io/alcelafranque/alcelafranque/postgres-backup-s3:16
+    image: ghcr.io/alcelafranque/postgres-backup-s3:16
     volumes:
       - /usr/local/share/ca-certificates/cloud-init-ca-cert-1.crt:/ca.crt:ro
     environment:
