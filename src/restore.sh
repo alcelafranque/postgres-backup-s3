@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 
-set -u # `-e` omitted intentionally, but i can't remember why exactly :'(
+# `-e` is omitted intentionally: pg_restore exits non-zero on benign warnings
+# (e.g. objects absent when running with --clean), which should not abort the restore.
+set -u
 set -o pipefail
 
 source ./env.sh
@@ -19,7 +21,7 @@ if [ $# -eq 1 ]; then
 else
   echo "Finding latest backup..."
   key_suffix=$(
-    aws $aws_args s3 ls "${s3_uri_base}/${POSTGRES_DATABASE}" \
+    aws "${aws_args[@]}" s3 ls "${s3_uri_base}/${POSTGRES_DATABASE}" \
       | sort \
       | tail -n 1 \
       | awk '{ print $4 }'
@@ -27,7 +29,7 @@ else
 fi
 
 echo "Fetching backup from S3..."
-aws $aws_args s3 cp "${s3_uri_base}/${key_suffix}" "db${file_type}"
+aws "${aws_args[@]}" s3 cp "${s3_uri_base}/${key_suffix}" "db${file_type}"
 
 if [ -n "$PASSPHRASE" ]; then
   echo "Decrypting backup..."

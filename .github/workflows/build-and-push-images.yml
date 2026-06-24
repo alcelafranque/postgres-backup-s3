@@ -33,7 +33,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/${{ github.repository }}:${{ matrix.postgres }}
+          tags: ghcr.io/${{ github.repository }}:${{ matrix.postgres }}
           build-args: |
             ALPINE_VERSION=${{ matrix.alpine }}
             POSTGRESQL_PACKAGE=${{ matrix.psql-package }}

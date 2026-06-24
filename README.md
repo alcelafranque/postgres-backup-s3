@@ -12,7 +12,7 @@ services:
       POSTGRES_PASSWORD: password
 
   backup:
-    image: ghcr.io/alcelafranque/alcelafranque/postgres-backup-s3:15
+    image: ghcr.io/alcelafranque/postgres-backup-s3:15
     volumes: # optional
       - /usr/local/share/ca-certificates/cloud-init-ca-cert-1.crt:/ca.crt:ro
     environment:
