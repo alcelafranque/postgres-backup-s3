@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        postgres-version: [12, 13, 14, 15, 16, 17]
+        postgres-version: [12, 13, 14, 15, 16, 17, 18]
         include:
           - postgres-version: 12
             alpine-version: "3.12"
@@ -31,11 +31,14 @@ jobs:
             alpine-version: "3.22"
             postgresql-package: "postgresql15-client"
           - postgres-version: 16
-            alpine-version: "3.22"
+            alpine-version: "3.24"
             postgresql-package: "postgresql16-client"
           - postgres-version: 17
-            alpine-version: "3.22"
+            alpine-version: "3.24"
             postgresql-package: "postgresql17-client"
+          - postgres-version: 18
+            alpine-version: "3.24"
+            postgresql-package: "postgresql18-client"
 
     services:
       postgres:
@@ -56,31 +59,35 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
-      - name: Start MinIO
+      - name: Start S3 server (RustFS)
         run: |
           docker run -d \
-            --name minio \
+            --name rustfs \
             --network host \
-            -e MINIO_ROOT_USER=minioadmin \
-            -e MINIO_ROOT_PASSWORD=minioadmin123 \
-            minio/minio:latest \
-            server /data --console-address ":9001"
+            -e RUSTFS_ACCESS_KEY=s3testuser \
+            -e RUSTFS_SECRET_KEY=s3testpass \
+            -e RUSTFS_ADDRESS=0.0.0.0:9000 \
+            rustfs/rustfs:1.0.4
 
-          echo "Waiting for MinIO to be ready..."
+          echo "Waiting for the S3 server to be ready..."
           for i in {1..30}; do
-            if curl -f http://localhost:9000/minio/health/live 2>/dev/null; then
-              echo "MinIO is ready!"
-              break
+            if curl -fs http://localhost:9000/health >/dev/null; then
+              echo "S3 server is ready!"
+              exit 0
             fi
             echo "Waiting... ($i/30)"
             sleep 2
           done
 
+          echo "Error: S3 server did not become ready"
+          docker logs rustfs
+          exit 1
+
       - name: Create S3 bucket
         run: |
           docker run --rm --network host \
-            -e AWS_ACCESS_KEY_ID=minioadmin \
-            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            -e AWS_ACCESS_KEY_ID=s3testuser \
+            -e AWS_SECRET_ACCESS_KEY=s3testpass \
             amazon/aws-cli:latest \
             --endpoint-url http://localhost:9000 \
             --region us-east-1 \
@@ -154,8 +161,8 @@ jobs:
             -e S3_BUCKET=test-backups \
             -e S3_PREFIX=backup-plain \
             -e S3_REGION=us-east-1 \
-            -e AWS_ACCESS_KEY_ID=minioadmin \
-            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            -e AWS_ACCESS_KEY_ID=s3testuser \
+            -e AWS_SECRET_ACCESS_KEY=s3testpass \
             postgres-backup-s3:test-${{ matrix.postgres-version }} \
             bash /backup.sh
 
@@ -165,16 +172,16 @@ jobs:
         run: |
           echo "Verifying backup exists in S3..."
           docker run --rm --network host \
-            -e AWS_ACCESS_KEY_ID=minioadmin \
-            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            -e AWS_ACCESS_KEY_ID=s3testuser \
+            -e AWS_SECRET_ACCESS_KEY=s3testpass \
             amazon/aws-cli:latest \
             --endpoint-url http://localhost:9000 \
             --region us-east-1 \
             s3 ls s3://test-backups/backup-plain/
 
           BACKUP_COUNT=$(docker run --rm --network host \
-            -e AWS_ACCESS_KEY_ID=minioadmin \
-            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            -e AWS_ACCESS_KEY_ID=s3testuser \
+            -e AWS_SECRET_ACCESS_KEY=s3testpass \
             amazon/aws-cli:latest \
             --endpoint-url http://localhost:9000 \
             --region us-east-1 \
@@ -216,8 +223,8 @@ jobs:
             -e S3_BUCKET=test-backups \
             -e S3_PREFIX=backup-plain \
             -e S3_REGION=us-east-1 \
-            -e AWS_ACCESS_KEY_ID=minioadmin \
-            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            -e AWS_ACCESS_KEY_ID=s3testuser \
+            -e AWS_SECRET_ACCESS_KEY=s3testpass \
             postgres-backup-s3:test-${{ matrix.postgres-version }} \
             bash /restore.sh
 
@@ -246,8 +253,8 @@ jobs:
             -e S3_BUCKET=test-backups \
             -e S3_PREFIX=backup-encrypted \
             -e S3_REGION=us-east-1 \
-            -e AWS_ACCESS_KEY_ID=minioadmin \
-            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            -e AWS_ACCESS_KEY_ID=s3testuser \
+            -e AWS_SECRET_ACCESS_KEY=s3testpass \
             -e PASSPHRASE=super-secret-passphrase-123 \
             postgres-backup-s3:test-${{ matrix.postgres-version }} \
             bash /backup.sh
@@ -258,16 +265,16 @@ jobs:
         run: |
           echo "Verifying encrypted backup exists in S3..."
           docker run --rm --network host \
-            -e AWS_ACCESS_KEY_ID=minioadmin \
-            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            -e AWS_ACCESS_KEY_ID=s3testuser \
+            -e AWS_SECRET_ACCESS_KEY=s3testpass \
             amazon/aws-cli:latest \
             --endpoint-url http://localhost:9000 \
             --region us-east-1 \
             s3 ls s3://test-backups/backup-encrypted/
 
           ENCRYPTED_COUNT=$(docker run --rm --network host \
-            -e AWS_ACCESS_KEY_ID=minioadmin \
-            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            -e AWS_ACCESS_KEY_ID=s3testuser \
+            -e AWS_SECRET_ACCESS_KEY=s3testpass \
             amazon/aws-cli:latest \
             --endpoint-url http://localhost:9000 \
             --region us-east-1 \
@@ -309,8 +316,8 @@ jobs:
             -e S3_BUCKET=test-backups \
             -e S3_PREFIX=backup-encrypted \
             -e S3_REGION=us-east-1 \
-            -e AWS_ACCESS_KEY_ID=minioadmin \
-            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            -e AWS_ACCESS_KEY_ID=s3testuser \
+            -e AWS_SECRET_ACCESS_KEY=s3testpass \
             -e PASSPHRASE=super-secret-passphrase-123 \
             postgres-backup-s3:test-${{ matrix.postgres-version }} \
             bash /restore.sh
@@ -360,8 +367,8 @@ jobs:
             -e S3_BUCKET=test-backups \
             -e S3_PREFIX=backup-multi \
             -e S3_REGION=us-east-1 \
-            -e AWS_ACCESS_KEY_ID=minioadmin \
-            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            -e AWS_ACCESS_KEY_ID=s3testuser \
+            -e AWS_SECRET_ACCESS_KEY=s3testpass \
             postgres-backup-s3:test-${{ matrix.postgres-version }} \
             bash /backup.sh
 
@@ -371,24 +378,24 @@ jobs:
         run: |
           echo "Verifying both databases were backed up..."
           docker run --rm --network host \
-            -e AWS_ACCESS_KEY_ID=minioadmin \
-            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            -e AWS_ACCESS_KEY_ID=s3testuser \
+            -e AWS_SECRET_ACCESS_KEY=s3testpass \
             amazon/aws-cli:latest \
             --endpoint-url http://localhost:9000 \
             --region us-east-1 \
             s3 ls s3://test-backups/backup-multi/
 
           NETFLIX_COUNT=$(docker run --rm --network host \
-            -e AWS_ACCESS_KEY_ID=minioadmin \
-            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            -e AWS_ACCESS_KEY_ID=s3testuser \
+            -e AWS_SECRET_ACCESS_KEY=s3testpass \
             amazon/aws-cli:latest \
             --endpoint-url http://localhost:9000 \
             --region us-east-1 \
             s3 ls s3://test-backups/backup-multi/ | grep 'netflix' | wc -l)
 
           TESTDB2_COUNT=$(docker run --rm --network host \
-            -e AWS_ACCESS_KEY_ID=minioadmin \
-            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            -e AWS_ACCESS_KEY_ID=s3testuser \
+            -e AWS_SECRET_ACCESS_KEY=s3testpass \
             amazon/aws-cli:latest \
             --endpoint-url http://localhost:9000 \
             --region us-east-1 \
@@ -432,8 +439,8 @@ jobs:
             -e S3_BUCKET=test-backups \
             -e S3_PREFIX=backup-multi \
             -e S3_REGION=us-east-1 \
-            -e AWS_ACCESS_KEY_ID=minioadmin \
-            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            -e AWS_ACCESS_KEY_ID=s3testuser \
+            -e AWS_SECRET_ACCESS_KEY=s3testpass \
             postgres-backup-s3:test-${{ matrix.postgres-version }} \
             bash /restore.sh
 
@@ -455,8 +462,8 @@ jobs:
           echo "All backups in S3:"
           echo "============================================"
           docker run --rm --network host \
-            -e AWS_ACCESS_KEY_ID=minioadmin \
-            -e AWS_SECRET_ACCESS_KEY=minioadmin123 \
+            -e AWS_ACCESS_KEY_ID=s3testuser \
+            -e AWS_SECRET_ACCESS_KEY=s3testpass \
             amazon/aws-cli:latest \
             --endpoint-url http://localhost:9000 \
             --region us-east-1 \
@@ -470,7 +477,7 @@ jobs:
           echo "PostgreSQL ${{ matrix.postgres-version }} Test Summary"
           echo "============================================"
           echo "✓ Build backup image"
-          echo "✓ Configure MinIO S3"
+          echo "✓ Start S3 server (RustFS)"
           echo "✓ Load Netflix sample database"
           echo "✓ Backup without encryption"
           echo "✓ Backup with GPG encryption"
