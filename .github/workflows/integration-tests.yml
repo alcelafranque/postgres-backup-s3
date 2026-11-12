@@ -59,25 +59,29 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
-      - name: Start MinIO
+      - name: Start S3 server (RustFS)
         run: |
           docker run -d \
-            --name minio \
+            --name rustfs \
             --network host \
-            -e MINIO_ROOT_USER=minioadmin \
-            -e MINIO_ROOT_PASSWORD=minioadmin123 \
-            minio/minio:latest \
-            server /data --console-address ":9001"
+            -e RUSTFS_ACCESS_KEY=minioadmin \
+            -e RUSTFS_SECRET_KEY=minioadmin123 \
+            -e RUSTFS_ADDRESS=0.0.0.0:9000 \
+            rustfs/rustfs:1.0.4
 
-          echo "Waiting for MinIO to be ready..."
+          echo "Waiting for the S3 server to be ready..."
           for i in {1..30}; do
-            if curl -f http://localhost:9000/minio/health/live 2>/dev/null; then
-              echo "MinIO is ready!"
-              break
+            if curl -fs http://localhost:9000/health >/dev/null; then
+              echo "S3 server is ready!"
+              exit 0
             fi
             echo "Waiting... ($i/30)"
             sleep 2
           done
+
+          echo "Error: S3 server did not become ready"
+          docker logs rustfs
+          exit 1
 
       - name: Create S3 bucket
         run: |
@@ -473,7 +477,7 @@ jobs:
           echo "PostgreSQL ${{ matrix.postgres-version }} Test Summary"
           echo "============================================"
           echo "✓ Build backup image"
-          echo "✓ Configure MinIO S3"
+          echo "✓ Start S3 server (RustFS)"
           echo "✓ Load Netflix sample database"
           echo "✓ Backup without encryption"
           echo "✓ Backup with GPG encryption"
