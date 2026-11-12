@@ -3,7 +3,7 @@
 
 services:
   postgres:
-    image: postgres:15
+    image: postgres:18
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
@@ -12,7 +12,8 @@ services:
     build:
       context: .
       args:
-        ALPINE_VERSION: '3.17'
+        ALPINE_VERSION: '3.24'
+        POSTGRESQL_PACKAGE: postgresql18-client
     environment:
       SCHEDULE: '@weekly'                      # optional
       BACKUP_KEEP_DAYS: 7                      # optional

@@ -32,7 +32,7 @@ services:
       POSTGRES_PASSWORD: password
 ```
 
-- Images are tagged by the major PostgreSQL version supported: `12`, `13`, `14`, `15`, `16` or `17`.
+- Images are tagged by the major PostgreSQL version supported: `12`, `13`, `14`, `15`, `16`, `17` or `18`.
 - The `SCHEDULE` variable determines backup frequency. See go-cron schedules documentation [here](http://godoc.org/github.com/robfig/cron#hdr-Predefined_schedules). Omit to run the backup immediately and then exit.
 - If `PASSPHRASE` is provided, the backup will be encrypted using GPG.
 - Run `docker exec <container name> bash backup.sh` to trigger a backup ad-hoc.
@@ -59,7 +59,7 @@ docker exec <container name> bash restore.sh <timestamp>
 ## Build the image locally
 `ALPINE_VERSION` determines Postgres version compatibility. See [`build-and-push-images.yml`](.github/workflows/build-and-push-images.yml) for the latest mapping.
 ```bash
-DOCKER_BUILDKIT=1 docker build --build-arg ALPINE_VERSION=3.14 .
+DOCKER_BUILDKIT=1 docker build --build-arg ALPINE_VERSION=3.24 --build-arg POSTGRESQL_PACKAGE=postgresql18-client .
 ```
 ## Run a simple test environment with Docker Compose
 ```bash
